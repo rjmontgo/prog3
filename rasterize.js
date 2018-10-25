@@ -4,9 +4,16 @@
 const WIN_Z = 0;  // default graphics window z coord in world space
 const WIN_LEFT = 0; const WIN_RIGHT = 1;  // default left and right x coords in world space
 const WIN_BOTTOM = 0; const WIN_TOP = 1;  // default top and bottom y coords in world space
-const INPUT_TRIANGLES_URL = "https://ncsucgclass.github.io/prog2/triangles.json"; // triangles file loc
+const INPUT_TRIANGLES_URL = "https://rjmontgo.github.io/prog3/triangles.json"; // triangles file loc
 const INPUT_SPHERES_URL = "https://ncsucgclass.github.io/prog2/spheres.json"; // spheres file loc
 var Eye = new vec4.fromValues(0.5,0.5,-0.5,1.0); // default eye position in world space
+
+var eye = new vec3.fromValues(0.5,0.5,-0.5);
+var lookat = new vec3.fromValues(0,0,1);
+var fov = Math.PI / 2;
+var up = new vec3.fromValues(0,1,0);
+var clipnear = 0.1;
+var clipfar = 300;
 
 /* webgl globals */
 var gl = null; // the all powerful gl object. It's all here folks!
@@ -72,8 +79,19 @@ function setupWebGL() {
 
 // read triangles in, load them into webgl buffers
 function loadTriangles() {
-    perspective = mat4.create();
-    perspective = mat4.perspective(perspective, Math.PI / 2, 0, 1);
+    var frust = mat4.create();
+    perspective = mat4.create()
+    mat4.perspective(frust, fov, gl.canvas.clientWidth / gl.canvas.clientHeight, clipnear, clipfar);
+
+    // lookat direction should be eye + lookat
+    var center = vec3.create();
+    vec3.add(center, eye, lookat);
+
+    // perform eye orientation transforms
+    var target = mat4.create();
+    mat4.lookAt(target, eye, center, up);
+    mat4.multiply(perspective, frust, target);
+
     var inputTriangles = getJSONFile(INPUT_TRIANGLES_URL,"triangles");
     if (inputTriangles != String.null) {
         var whichSetVert; // index of vertex in current triangle set
@@ -138,12 +156,12 @@ function setupShaders() {
     var vShaderCode = `
         attribute vec3 vertexPosition;
         attribute vec4 vertexColor;
-        uniform mat4 u_matrix;
+        uniform mat4 perspective;
 
         varying lowp vec4 vColor;
 
         void main(void) {
-            gl_Position = u_matrix * vec4(vertexPosition, 1.0); // use the untransformed position
+            gl_Position = perspective * vec4(vertexPosition, 1.0); // use the untransformed position
             vColor = vertexColor;
         }
     `;
@@ -182,8 +200,8 @@ function setupShaders() {
                 vertexColorAttrib = gl.getAttribLocation(shaderProgram, "vertexColor");
                 gl.enableVertexAttribArray(vertexColorAttrib);
 
-                u_matrix = gl.getUniformLocation(shaderProgram, "u_matrix");
-                gl.uniformMatrix4fv(u_matrix, false, perspective);
+                var perploc = gl.getUniformLocation(shaderProgram, "perspective");
+		            gl.uniformMatrix4fv(perploc, false, perspective);
             } // end if no shader program link errors
         } // end if no compile errors
     } // end try
