@@ -15,6 +15,7 @@ var triangleBuffer; // this contains indices into vertexBuffer in triples
 var triBufferSize; // the number of indices in the triangle buffer
 var vertexPositionAttrib; // where to put position for vertex shader
 var vertexColorAttrib; // where to put color for vertex shader
+var perspective;
 
 
 // ASSIGNMENT HELPER FUNCTIONS
@@ -71,6 +72,8 @@ function setupWebGL() {
 
 // read triangles in, load them into webgl buffers
 function loadTriangles() {
+    perspective = mat4.create();
+    perspective = mat4.perspective(perspective, Math.PI / 2, 0, 1);
     var inputTriangles = getJSONFile(INPUT_TRIANGLES_URL,"triangles");
     if (inputTriangles != String.null) {
         var whichSetVert; // index of vertex in current triangle set
@@ -135,11 +138,12 @@ function setupShaders() {
     var vShaderCode = `
         attribute vec3 vertexPosition;
         attribute vec4 vertexColor;
+        uniform mat4 u_matrix;
 
         varying lowp vec4 vColor;
 
         void main(void) {
-            gl_Position = vec4(vertexPosition, 1.0); // use the untransformed position
+            gl_Position = u_matrix * vec4(vertexPosition, 1.0); // use the untransformed position
             vColor = vertexColor;
         }
     `;
@@ -177,6 +181,9 @@ function setupShaders() {
 
                 vertexColorAttrib = gl.getAttribLocation(shaderProgram, "vertexColor");
                 gl.enableVertexAttribArray(vertexColorAttrib);
+
+                u_matrix = gl.getUniformLocation(shaderProgram, "u_matrix");
+                gl.uniformMatrix4fv(u_matrix, false, perspective);
             } // end if no shader program link errors
         } // end if no compile errors
     } // end try
