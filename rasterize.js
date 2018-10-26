@@ -177,6 +177,7 @@ function loadTriangles() {
 // setup the webGL shaders
 function setupShaders() {
 
+    // vec3 lpos = vec3(-3, 1, -.5);
     // define fragment shader in essl using es6 template strings
     var fShaderCode = `
         precision mediump float;
@@ -189,7 +190,7 @@ function setupShaders() {
 
         varying lowp vec3 pos;
 
-        vec3 lpos = vec3(-3, 1, -.5);
+        vec3 lpos = vec3(-3.0, -1.0, -0.5);
         vec3 epos = vec3(0.5,0.5,-0.5);
 
         void main(void) {
@@ -198,7 +199,7 @@ function setupShaders() {
 
             vec3 hVect = (lVect + vVect)/(length(lVect) + length(vVect));
             float specCoef = pow(dot(hVect, normal), n);
-            gl_FragColor = vec4(dColor + specCoef*sColor, 1);
+            gl_FragColor = vec4(aColor + dColor * dot(normal, lVect) + specCoef*sColor, 1);
         }
     `;
 
