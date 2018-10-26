@@ -193,7 +193,12 @@ function setupShaders() {
         vec3 epos = vec3(0.5,0.5,-0.5);
 
         void main(void) {
-            gl_FragColor = vec4(dColor, 1);
+            vec3 lVect = normalize(lpos - pos);
+            vec3 vVect = normalize(epos - pos);
+
+            vec3 hVect = (lVect + vVect)/(length(lVect) + length(vVect));
+            float specCoef = pow(dot(hVect, normal), n);
+            gl_FragColor = vec4(dColor + specCoef*sColor, 1);
         }
     `;
 
