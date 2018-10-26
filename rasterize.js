@@ -6,7 +6,6 @@ const WIN_LEFT = 0; const WIN_RIGHT = 1;  // default left and right x coords in 
 const WIN_BOTTOM = 0; const WIN_TOP = 1;  // default top and bottom y coords in world space
 const INPUT_TRIANGLES_URL = "https://rjmontgo.github.io/prog3/triangles.json"; // triangles file loc
 const INPUT_SPHERES_URL = "https://ncsucgclass.github.io/prog2/spheres.json"; // spheres file loc
-var Eye = new vec4.fromValues(0.5,0.5,-0.5,1.0); // default eye position in world space
 
 var eye = new vec3.fromValues(0.5,0.5,-0.5);
 var lookat = new vec3.fromValues(0,0,1);
@@ -21,9 +20,14 @@ var gl = null; // the all powerful gl object. It's all here folks!
 var vertexBuffer; // this contains vertex coordinates in triples
 var normalBuffer; // contains vertex normals
 var triangleBuffer; // this contains indices into vertexBuffer in triples
+var numTriangles;
 var ambientBuffer;
 var diffuseBuffer;
 var specularBuffer;
+var xtransformVectBuffer;
+var ytransformVectBuffer;
+var ztransformVectBuffer;
+var ftransformVectBuffer;
 var nBuffer;
 var triBufferSize; // the number of indices in the triangle buffer
 var vertexPositionAttrib; // where to put position for vertex shader
@@ -32,6 +36,10 @@ var vertexDiffuseAttrib;
 var vertexSpecularAttrib;
 var vertexNormalAttrib;
 var vertexNAttrib;
+var vertexXTransformVectAttrib;
+var vertexYTransformVectAttrib;
+var vertexZTransformVectAttrib;
+var vertexFTransformVectAttrib;
 var perspective;
 
 
@@ -87,17 +95,28 @@ function setupWebGL() {
 
 } // end setupWebGL
 
+function reset() {
+  var frust = mat4.create();
+  perspective = mat4.create()
+  mat4.perspective(frust, fov, gl.canvas.clientWidth / gl.canvas.clientHeight, clipnear, clipfar);
+
+  var center = vec3.create();
+  vec3.add(center, eye, lookat);
+
+  var target = mat4.create();
+  mat4.lookAt(target, eye, center, up);
+  mat4.multiply(perspective, frust, target);
+}
+
 // read triangles in, load them into webgl buffers
 function loadTriangles() {
     var frust = mat4.create();
     perspective = mat4.create()
     mat4.perspective(frust, fov, gl.canvas.clientWidth / gl.canvas.clientHeight, clipnear, clipfar);
 
-    // lookat direction should be eye + lookat
     var center = vec3.create();
     vec3.add(center, eye, lookat);
 
-    // perform eye orientation transforms
     var target = mat4.create();
     mat4.lookAt(target, eye, center, up);
     mat4.multiply(perspective, frust, target);
@@ -116,6 +135,11 @@ function loadTriangles() {
         var n = [];
         numVerts = 0;
 
+        var xtransformArray = [];
+        var ytransformArray = [];
+        var ztransformArray = [];
+        var ftransformArray = [];
+
         for (var whichSet=0; whichSet<inputTriangles.length; whichSet++) {
 
             // set up the vertex coord array
@@ -133,6 +157,10 @@ function loadTriangles() {
             for (whichSetTri=0; whichSetTri<inputTriangles[whichSet].triangles.length; whichSetTri++){
                 for (var indx=0; indx<inputTriangles[whichSet].triangles[whichSetTri].length; indx++){
                     triArray.push(inputTriangles[whichSet].triangles[whichSetTri][indx] + numVerts);
+                    xtransformArray = xtransformArray.concat([2, 0, 0, 0]);
+                    ytransformArray = ytransformArray.concat([0, 2, 0, 0]);
+                    ztransformArray = ztransformArray.concat([0, 0, 2, 0]);
+                    ftransformArray = ftransformArray.concat([0, 0, 0, 2]);
                 }
             }
             numVerts += inputTriangles[whichSet].vertices.length
@@ -153,6 +181,22 @@ function loadTriangles() {
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, triangleBuffer);
         gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(triArray), gl.STATIC_DRAW);
         triBufferSize = triArray.length;
+
+        xtransformVectBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, xtransformVectBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(xtransformArray), gl.STATIC_DRAW);
+
+        ytransformVectBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, ytransformVectBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(ytransformArray), gl.STATIC_DRAW);
+
+        ztransformVectBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, ztransformVectBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(ztransformArray), gl.STATIC_DRAW);
+
+        ftransformVectBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, ftransformVectBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(ftransformArray), gl.STATIC_DRAW);
 
         // create color buffer
         ambientBuffer = gl.createBuffer();
@@ -184,6 +228,7 @@ function setupShaders() {
         varying lowp vec3 aColor;
         varying lowp vec3 dColor;
         varying lowp vec3 sColor;
+        varying lowp vec3 eyePos;
         varying lowp float n;
 
         varying lowp vec3 normal;
@@ -191,11 +236,10 @@ function setupShaders() {
         varying lowp vec3 pos;
 
         vec3 lpos = vec3(-3.0, -1.0, -0.5);
-        vec3 epos = vec3(0.5,0.5,-0.5);
 
         void main(void) {
             vec3 lVect = normalize(lpos - pos);
-            vec3 vVect = normalize(epos - pos);
+            vec3 vVect = normalize(eyePos - pos);
 
             vec3 hVect = (lVect + vVect)/(length(lVect) + length(vVect));
             float specCoef = pow(dot(hVect, normal), n);
@@ -205,6 +249,11 @@ function setupShaders() {
 
     // define vertex shader in essl using es6 template strings
     var vShaderCode = `
+        attribute vec4 vertexXTransformVectAttrib;
+        attribute vec4 vertexYTransformVectAttrib;
+        attribute vec4 vertexZTransformVectAttrib;
+        attribute vec4 vertexFTransformVectAttrib;
+
         attribute vec3 vertexPosition;
         attribute vec3 vertexAmbient;
         attribute vec3 vertexDiffuse;
@@ -212,21 +261,31 @@ function setupShaders() {
         attribute vec3 vertexNormal;
         attribute lowp float vertexN;
         uniform mat4 perspective;
+        uniform vec3 eye;
 
         varying lowp vec3 aColor;
         varying lowp vec3 dColor;
         varying lowp vec3 sColor;
         varying lowp vec3 normal;
+        varying lowp vec3 eyePos;
         varying lowp float n;
 
         varying lowp vec3 pos;
 
+
         void main(void) {
-            gl_Position = perspective * vec4(vertexPosition, 1.0); // use the untransformed position
+            mat4 transMat = mat4(vertexXTransformVectAttrib,
+                                          vertexYTransformVectAttrib,
+                                          vertexZTransformVectAttrib,
+                                          vertexFTransformVectAttrib);
+
+            gl_Position = perspective * transMat * vec4(vertexPosition, 1.0); // use the untransformed position
+
 
             aColor = vertexAmbient;
             dColor = vertexDiffuse;
             sColor = vertexSpecular;
+            eyePos = eye;
             n = vertexN;
 
             normal = vertexNormal;
@@ -281,8 +340,24 @@ function setupShaders() {
                 vertexNormalAttrib = gl.getAttribLocation(shaderProgram, "vertexNormal");
                 gl.enableVertexAttribArray(vertexNormalAttrib);
 
+                vertexXTransformVectAttrib = gl.getAttribLocation(shaderProgram, "vertexXTransformVectAttrib");
+                gl.enableVertexAttribArray(vertexXTransformVectAttrib);
+
+                vertexYTransformVectAttrib = gl.getAttribLocation(shaderProgram, "vertexYTransformVectAttrib");
+                gl.enableVertexAttribArray(vertexYTransformVectAttrib);
+
+                vertexZTransformVectAttrib = gl.getAttribLocation(shaderProgram, "vertexZTransformVectAttrib");
+                gl.enableVertexAttribArray(vertexZTransformVectAttrib);
+
+                vertexFTransformVectAttrib = gl.getAttribLocation(shaderProgram, "vertexFTransformVectAttrib");
+                gl.enableVertexAttribArray(vertexFTransformVectAttrib);
+
                 var perploc = gl.getUniformLocation(shaderProgram, "perspective");
 		            gl.uniformMatrix4fv(perploc, false, perspective);
+
+                var eyeLoc = gl.getUniformLocation(shaderProgram, "eye");
+                gl.uniform3fv(eyeLoc, eye);
+
             } // end if no shader program link errors
         } // end if no compile errors
     } // end try
@@ -291,13 +366,76 @@ function setupShaders() {
         console.log(e);
     } // end catch
 } // end setup shaders
+
+var xTrans = vec3.fromValues(.01, 0, 0);
+var yTrans = vec3.fromValues(0, .01, 0);
+var zTrans = vec3.fromValues(0, 0, .01);
+
+var rot = .1;
+
+document.addEventListener('keydown', function(event) {
+    if (event.key == "a") {
+    	vec3.add(eye, eye, xTrans);
+      vec3.add(lookat, lookat, xTrans);
+    }
+
+    if (event.key == "d") {
+      vec3.sub(eye, eye, xTrans);
+      vec3.sub(lookat, lookat, xTrans);
+    }
+
+    if (event.key == "w") {
+      vec3.add(eye, eye, zTrans);
+      vec3.add(lookat, lookat, zTrans);
+    }
+
+    if (event.key == "s") {
+      vec3.sub(eye, eye, zTrans);
+      vec3.sub(lookat, lookat, zTrans);
+    }
+
+    if (event.key == "q") {
+      vec3.add(eye, eye, yTrans);
+      vec3.add(lookat, lookat, yTrans);
+    }
+
+    if (event.key == "e") {
+      vec3.sub(eye, eye, yTrans);
+      vec3.sub(lookat, lookat, yTrans);
+    }
+
+    if (event.key == "A") {
+      vec3.rotateY(lookat, lookat, eye, rot);
+    }
+
+    if (event.key == "D") {
+      vec3.rotateY(lookat, lookat, eye, -rot);
+    }
+
+    if (event.key == "W") {
+      console.log("here");
+      vec3.rotateX(lookat, lookat, eye, rot);
+      vec3.rotateX(up, up, eye, rot);
+    }
+
+    if (event.key == "S") {
+      console.log("here");
+      vec3.rotateX(up, up, eye, -rot);
+    }
+
+    reset();
+    setupShaders();
+
+
+});
+
 var bgColor = 0;
 // render the loaded model
 function renderTriangles() {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT); // clear frame/depth buffers
-    //bgColor = (bgColor < 1) ? (bgColor + 0.001) : 0;
-    //gl.clearColor(bgColor, 0, 0, 1.0);
+    gl.clearColor(0, 0, 0, 1.0);
     requestAnimationFrame(renderTriangles);
+
     // vertex buffer: activate and feed into vertex shader
     gl.bindBuffer(gl.ARRAY_BUFFER,vertexBuffer); // activate
     gl.vertexAttribPointer(vertexPositionAttrib,3,gl.FLOAT,false,0,0); // feed
@@ -316,6 +454,18 @@ function renderTriangles() {
 
     gl.bindBuffer(gl.ARRAY_BUFFER,normalBuffer);
     gl.vertexAttribPointer(vertexNormalAttrib, 3, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER,xtransformVectBuffer);
+    gl.vertexAttribPointer(vertexXTransformVectAttrib, 4, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER,ytransformVectBuffer);
+    gl.vertexAttribPointer(vertexYTransformVectAttrib, 4, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER,ztransformVectBuffer);
+    gl.vertexAttribPointer(vertexZTransformVectAttrib, 4, gl.FLOAT, false, 0, 0);
+
+    gl.bindBuffer(gl.ARRAY_BUFFER,ftransformVectBuffer);
+    gl.vertexAttribPointer(vertexFTransformVectAttrib, 4, gl.FLOAT, false, 0, 0);
 
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, triangleBuffer);
     gl.drawElements(gl.TRIANGLES, triBufferSize, gl.UNSIGNED_SHORT, 0); // render
