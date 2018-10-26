@@ -41,6 +41,22 @@ var vertexYTransformVectAttrib;
 var vertexZTransformVectAttrib;
 var vertexFTransformVectAttrib;
 var perspective;
+var numTriangles;
+var selectedTriangle;
+var triangleSets;
+var numTriangleSets;
+var coordArray;
+var triArray;
+var xtransformArray;
+var ytransformArray;
+var ztransformArray;
+var ftransformArray;
+
+var blinnphong;
+var ambient;
+var diffuse;
+var specular;
+var n;
 
 
 // ASSIGNMENT HELPER FUNCTIONS
@@ -110,6 +126,7 @@ function reset() {
 
 // read triangles in, load them into webgl buffers
 function loadTriangles() {
+    blinnphong = 1;
     var frust = mat4.create();
     perspective = mat4.create()
     mat4.perspective(frust, fov, gl.canvas.clientWidth / gl.canvas.clientHeight, clipnear, clipfar);
@@ -126,22 +143,27 @@ function loadTriangles() {
         var whichSetVert; // index of vertex in current triangle set
         var whichSetTri; // index of triangle in current triangle set
         var whichSetColor;
-        var coordArray = []; // 1D array of vertex coords for WebGL
-        var triArray = []; // 1D array of triangle vertex indices
+        coordArray = []; // 1D array of vertex coords for WebGL
+        triArray = []; // 1D array of triangle vertex indices
         var normalArray = [];
-        var ambient = [];
-        var diffuse = [];
-        var specular = [];
-        var n = [];
+        ambient = [];
+        diffuse = [];
+        specular = [];
+        n = [];
         numVerts = 0;
+        numTriangles = 0;
+        selectedTriangle = -1;
 
-        var xtransformArray = [];
-        var ytransformArray = [];
-        var ztransformArray = [];
-        var ftransformArray = [];
+        numTriangleSets = 0;
+        triangleSets = [];
+
+        xtransformArray = [];
+        ytransformArray = [];
+        ztransformArray = [];
+        ftransformArray = [];
 
         for (var whichSet=0; whichSet<inputTriangles.length; whichSet++) {
-
+            triangleSets[whichSet] = []
             // set up the vertex coord array
             for (whichSetVert=0; whichSetVert<inputTriangles[whichSet].vertices.length; whichSetVert++){
                 coordArray = coordArray.concat(inputTriangles[whichSet].vertices[whichSetVert]);
@@ -157,12 +179,15 @@ function loadTriangles() {
             for (whichSetTri=0; whichSetTri<inputTriangles[whichSet].triangles.length; whichSetTri++){
                 for (var indx=0; indx<inputTriangles[whichSet].triangles[whichSetTri].length; indx++){
                     triArray.push(inputTriangles[whichSet].triangles[whichSetTri][indx] + numVerts);
-                    xtransformArray = xtransformArray.concat([2, 0, 0, 0]);
-                    ytransformArray = ytransformArray.concat([0, 2, 0, 0]);
-                    ztransformArray = ztransformArray.concat([0, 0, 2, 0]);
-                    ftransformArray = ftransformArray.concat([0, 0, 0, 2]);
+                    xtransformArray = xtransformArray.concat([1, 0, 0, 0]);
+                    ytransformArray = ytransformArray.concat([0, 1, 0, 0]);
+                    ztransformArray = ztransformArray.concat([0, 0, 1, 0]);
+                    ftransformArray = ftransformArray.concat([0, 0, 0, 1]);
+                    triangleSets[whichSet].push(inputTriangles[whichSet].triangles[whichSetTri][indx] + numVerts);
                 }
+                numTriangles += 1;
             }
+            numTriangleSets += 1
             numVerts += inputTriangles[whichSet].vertices.length
 
         } // end for each triangle set
@@ -231,8 +256,9 @@ function setupShaders() {
         varying lowp vec3 eyePos;
         varying lowp float n;
 
-        varying lowp vec3 normal;
+        uniform int blinnphong;
 
+        varying lowp vec3 normal;
         varying lowp vec3 pos;
 
         vec3 lpos = vec3(-3.0, -1.0, -0.5);
@@ -241,9 +267,15 @@ function setupShaders() {
             vec3 lVect = normalize(lpos - pos);
             vec3 vVect = normalize(eyePos - pos);
 
-            vec3 hVect = (lVect + vVect)/(length(lVect) + length(vVect));
-            float specCoef = pow(dot(hVect, normal), n);
-            gl_FragColor = vec4(aColor + dColor * dot(normal, lVect) + specCoef*sColor, 1);
+            if (blinnphong == 1) {
+                vec3 hVect = (lVect + vVect)/(length(lVect) + length(vVect));
+                float specCoef = pow(dot(hVect, normal), n);
+                gl_FragColor = vec4(aColor + dColor * dot(normal, lVect) + specCoef*sColor, 1);
+            } else {
+                vec3 rVect = 2.0 * normal * ( dot(normal, lVect) ) - lVect;
+                float specCoef = pow(dot(rVect, vVect), n);
+                gl_FragColor = vec4(aColor + dColor * dot(normal, lVect) + specCoef*sColor, 1);
+            }
         }
     `;
 
@@ -260,6 +292,7 @@ function setupShaders() {
         attribute vec3 vertexSpecular;
         attribute vec3 vertexNormal;
         attribute lowp float vertexN;
+
         uniform mat4 perspective;
         uniform vec3 eye;
 
@@ -358,6 +391,9 @@ function setupShaders() {
                 var eyeLoc = gl.getUniformLocation(shaderProgram, "eye");
                 gl.uniform3fv(eyeLoc, eye);
 
+                var blinnphongloc = gl.getUniformLocation(shaderProgram, "blinnphong");
+                gl.uniform1i(blinnphongloc, blinnphong);
+
             } // end if no shader program link errors
         } // end if no compile errors
     } // end try
@@ -372,6 +408,77 @@ var yTrans = vec3.fromValues(0, .01, 0);
 var zTrans = vec3.fromValues(0, 0, .01);
 
 var rot = .1;
+
+function highlightTri() {
+    if (selectedTriangle == -1) {
+      gl.bindBuffer(gl.ARRAY_BUFFER,vertexBuffer); // activate that buffer
+      gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(coordArray),gl.STATIC_DRAW);
+    }
+    var v1idx = triArray[selectedTriangle*3] * 3
+    var v2idx = triArray[selectedTriangle*3 + 1] * 3
+    var v3idx = triArray[selectedTriangle*3 + 2] * 3
+
+    //coordArray
+    var v1 = vec4.fromValues(coordArray[v1idx], coordArray[v1idx + 1],
+                             coordArray[v1idx + 2], 1);
+
+    var v2 = vec4.fromValues(coordArray[v2idx], coordArray[v2idx + 1],
+                             coordArray[v2idx + 2], 1);
+
+    var v3 = vec4.fromValues(coordArray[v3idx], coordArray[v3idx + 1],
+                             coordArray[v3idx + 2], 1);
+
+    var tv1 = mat4.create();
+    var tv2 = mat4.create();
+    var tv3 = mat4.create();
+
+    mat4.multiply(tv1, mat4.fromValues(1.2, 0, 0, 0,
+                                       0, 1.2, 0, 0,
+                                       0, 0, 1.2, 0,
+                                       0, 0, 0, 1),
+
+                       mat4.fromValues(v1[0], 0, 0, 0,
+                                       0, v1[1], 0, 0,
+                                       0, 0, v1[2], 0,
+                                       0, 0, 0, 1));
+
+     mat4.multiply(tv2, mat4.fromValues(1.2, 0, 0, 0,
+                                        0, 1.2, 0, 0,
+                                        0, 0, 1.2, 0,
+                                        0, 0, 0, 1),
+
+                        mat4.fromValues(v2[0], 0, 0, 0,
+                                        0, v2[1], 0, 0,
+                                        0, 0, v2[2], 0,
+                                        0, 0, 0, 1));
+
+
+      mat4.multiply(tv3, mat4.fromValues(1.2, 0, 0, 0,
+                                         0, 1.2, 0, 0,
+                                         0, 0, 1.2, 0,
+                                         0, 0, 0, 1),
+
+                         mat4.fromValues(v3[0], 0, 0, 0,
+                                         0, v3[1], 0, 0,
+                                         0, 0, v3[2], 0,
+                                         0, 0, 0, 1));
+
+    var tmpdata = coordArray.slice();
+    tmpdata[v1idx] = tv1[0];
+    tmpdata[v1idx + 1] = tv1[5];
+    tmpdata[v1idx + 2] = tv1[10];
+
+    tmpdata[v2idx] = tv2[0];
+    tmpdata[v2idx + 1] = tv2[5];
+    tmpdata[v2idx + 2] = tv2[10];
+
+    tmpdata[v3idx] = tv3[0];
+    tmpdata[v3idx + 1] = tv3[5];
+    tmpdata[v3idx + 2] = tv3[10];
+
+    gl.bindBuffer(gl.ARRAY_BUFFER,vertexBuffer); // activate that buffer
+    gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(tmpdata),gl.STATIC_DRAW);
+}
 
 document.addEventListener('keydown', function(event) {
     if (event.key == "a") {
@@ -423,9 +530,150 @@ document.addEventListener('keydown', function(event) {
       vec3.rotateX(up, up, eye, -rot);
     }
 
+    if (event.key == "ArrowLeft") {
+      if (selectedTriangle <= 0) {
+        selectedTriangle = numTriangleSets - 1;
+      } else {
+        selectedTriangle -= 1;
+      }
+      highlightTri();
+
+    }
+
+    if (event.key == "ArrowRight") {
+      if (selectedTriangle >= numTriangleSets) {
+        selectedTriangle = 0;
+      } else {
+        selectedTriangle += 1;
+      }
+      highlightTri();
+
+    }
+
+    if (event.key == " ") {
+      selectedTriangle = -1;
+      highlightTri();
+    }
+
+
+    // uniform variable blinn/phong
+    // check if it is set in the shader and apply correct model
+
+    if (event.key == "b" ) {
+      if ( blinnphong == 1 ) {
+        blinnphong = 0;
+      } else {
+        blinnphong = 1;
+      }
+    }
+
+    // ambient
+    if (event.key == "1") {
+        if (selectedTriangle == -1) {
+            return 0;
+        }
+        var v1idx = triArray[selectedTriangle*3] * 3
+        var v2idx = triArray[selectedTriangle*3 + 1] * 3
+        var v3idx = triArray[selectedTriangle*3 + 2] * 3
+
+        ambient[v1idx] = (ambient[v1idx] + .1) % 1;
+        ambient[v1idx + 1] = (ambient[v1idx + 1] + .1) % 1;
+        ambient[v1idx + 2] = (ambient[v1idx + 2] + .1) % 1;
+
+        ambient[v2idx] = (ambient[v2idx] + .1) % 1;
+        ambient[v2idx + 1] = (ambient[v2idx + 1] + .1) % 1;
+        ambient[v2idx + 2] = (ambient[v2idx + 2] + .1) % 1;
+
+        ambient[v3idx] = (ambient[v3idx] + .1) % 1;
+        ambient[v3idx + 1] = (ambient[v3idx + 1] + .1) % 1;
+        ambient[v3idx + 2] = (ambient[v3idx + 2] + .1) % 1;
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, ambientBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(ambient), gl.STATIC_DRAW);
+
+    }
+
+    // diffuse
+    if (event.key == "2") {
+        if (selectedTriangle == -1) {
+            return 0;
+        }
+        var v1idx = triArray[selectedTriangle*3] * 3
+        var v2idx = triArray[selectedTriangle*3 + 1] * 3
+        var v3idx = triArray[selectedTriangle*3 + 2] * 3
+
+        diffuse[v1idx] = (diffuse[v1idx] + .1) % 1;
+        diffuse[v1idx + 1] = (diffuse[v1idx + 1] + .1) % 1;
+        diffuse[v1idx + 2] = (diffuse[v1idx + 2] + .1) % 1;
+
+        diffuse[v2idx] = (diffuse[v2idx] + .1) % 1;
+        diffuse[v2idx + 1] = (diffuse[v2idx + 1] + .1) % 1;
+        diffuse[v2idx + 2] = (diffuse[v2idx + 2] + .1) % 1;
+
+        diffuse[v3idx] = (diffuse[v3idx] + .1) % 1;
+        diffuse[v3idx + 1] = (diffuse[v3idx + 1] + .1) % 1;
+        diffuse[v3idx + 2] = (diffuse[v3idx + 2] + .1) % 1;
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, diffuseBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(diffuse), gl.STATIC_DRAW);
+    }
+
+    // specular
+    if (event.key == "3") {
+        if (selectedTriangle == -1) {
+            return 0;
+        }
+        var v1idx = triArray[selectedTriangle*3] * 3
+        var v2idx = triArray[selectedTriangle*3 + 1] * 3
+        var v3idx = triArray[selectedTriangle*3 + 2] * 3
+
+        specular[v1idx] = (specular[v1idx] + .1) % 1;
+        specular[v1idx + 1] = (specular[v1idx + 1] + .1) % 1;
+        specular[v1idx + 2] = (specular[v1idx + 2] + .1) % 1;
+
+        specular[v2idx] = (specular[v2idx] + .1) % 1;
+        specular[v2idx + 1] = (specular[v2idx + 1] + .1) % 1;
+        specular[v2idx + 2] = (specular[v2idx + 2] + .1) % 1;
+
+        specular[v3idx] = (specular[v3idx] + .1) % 1;
+        specular[v3idx + 1] = (specular[v3idx + 1] + .1) % 1;
+        specular[v3idx + 2] = (specular[v3idx + 2] + .1) % 1;
+        gl.bindBuffer(gl.ARRAY_BUFFER, specularBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(specular), gl.STATIC_DRAW);
+    }
+
+    if (event.key == "n") {
+        if (selectedTriangle == -1) {
+            return 0;
+        }
+        var v1idx = triArray[selectedTriangle*3] * 3
+        var v2idx = triArray[selectedTriangle*3 + 1] * 3
+        var v3idx = triArray[selectedTriangle*3 + 2] * 3
+
+        specular[v1idx] = (specular[v1idx] + .1) % 1;
+        specular[v1idx + 1] = (specular[v1idx] + .1) % 1;
+        specular[v1idx + 2] = (specular[v1idx] + .1) % 1;
+
+        specular[v2idx] = (specular[v2idx] + .1) % 1;
+        specular[v2idx + 1] = (specular[v2idx] + .1) % 1;
+        specular[v2idx + 2] = (specular[v2idx] + .1) % 1;
+
+        specular[v3idx] = (specular[v3idx] + .1) % 1;
+        specular[v3idx + 1] = (specular[v3idx] + .1) % 1;
+        specular[v3idx + 2] = (specular[v3idx] + .1) % 1;
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, specularBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(specular), gl.STATIC_DRAW);
+    }
+
+
+
+    // break out the colorArray as a set of attributes.
+    // update and rebuffer the colorArray (we can store our changes in there)
+
+
     reset();
     setupShaders();
-
 
 });
 
