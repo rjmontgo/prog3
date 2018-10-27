@@ -241,31 +241,31 @@ function setupShaders() {
 
     var fShaderCode = `
         precision mediump float;
-        varying lowp vec3 aColor;
-        varying lowp vec3 dColor;
-        varying lowp vec3 sColor;
+        varying lowp vec3 ambColor;
+        varying lowp vec3 difColor;
+        varying lowp vec3 speColor;
         varying lowp vec3 eyePos;
         varying lowp float n;
 
         uniform int blinnphong;
 
         varying lowp vec3 normal;
-        varying lowp vec3 pos;
+        varying lowp vec3 fragPos;
 
         vec3 lightpos = vec3(-3.0, -1.0, -0.5);
 
         void main(void) {
-            vec3 lVect = normalize(lightpos - pos);
-            vec3 vVect = normalize(eyePos - pos);
+            vec3 lVect = normalize(lightpos - fragPos);
+            vec3 vVect = normalize(eyePos - fragPos);
 
             if (blinnphong == 1) {
                 vec3 hVect = (lVect + vVect)/(length(lVect) + length(vVect));
                 float specCoef = pow(dot(hVect, normal), n);
-                gl_FragColor = vec4(aColor + dColor * dot(normal, lVect) + specCoef*sColor, 1);
+                gl_FragColor = vec4(ambColor + difColor * dot(normal, lVect) + specCoef*speColor, 1);
             } else {
                 vec3 rVect = 2.0 * normal * ( dot(normal, lVect) ) - lVect;
                 float specCoef = pow(dot(rVect, vVect), n);
-                gl_FragColor = vec4(aColor + dColor * dot(normal, lVect) + specCoef*sColor, 1);
+                gl_FragColor = vec4(ambColor + difColor * dot(normal, lVect) + specCoef*speColor, 1);
             }
         }
     `;
@@ -287,14 +287,14 @@ function setupShaders() {
         uniform mat4 perspective;
         uniform vec3 eye;
 
-        varying lowp vec3 aColor;
-        varying lowp vec3 dColor;
-        varying lowp vec3 sColor;
+        varying lowp vec3 ambColor;
+        varying lowp vec3 difColor;
+        varying lowp vec3 speColor;
         varying lowp vec3 normal;
         varying lowp vec3 eyePos;
         varying lowp float n;
 
-        varying lowp vec3 pos;
+        varying lowp vec3 fragPos;
 
 
         void main(void) {
@@ -303,18 +303,18 @@ function setupShaders() {
                                           vertexZTransformVectAttrib,
                                           vertexFTransformVectAttrib);
 
-            gl_Position = perspective * transMat * vec4(vertexPosition, 1.0); // use the untransformed position
+            gl_Position = perspective * transMat * vec4(vertexPosition, 1.0);
 
 
-            aColor = vertexAmbient;
-            dColor = vertexDiffuse;
-            sColor = vertexSpecular;
+            ambColor = vertexAmbient;
+            difColor = vertexDiffuse;
+            speColor = vertexSpecular;
             eyePos = eye;
             n = vertexN;
 
             normal = vertexNormal;
 
-            pos = vec3(gl_Position);
+            fragPos = vec3(gl_Position) / gl_Position.w; // divide to get homogenous coordinates
         }
     `;
 
