@@ -323,7 +323,8 @@ function setupShaders() {
             eyePos = eye;
             n = vertexN;
 
-
+            // Approximating M^-1 = M^t
+            // Giving the equation N = M * Nm
             normal = normalize(vec3(transMat * vec4(vertexNormal, 0)));
 
 
@@ -737,14 +738,14 @@ document.addEventListener('keydown', function(keypress) {
       if (selectedTriangle == -1) {
         return;
       }
-      rotateZ(.1);
+      rotateZ(-.1);
     }
 
     if (keypress.key == "P") {
       if (selectedTriangle == -1) {
         return;
       }
-      rotateZ(-.1);
+      rotateZ(.1);
     }
 
     setupShaders();
