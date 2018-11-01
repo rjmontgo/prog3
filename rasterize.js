@@ -107,28 +107,12 @@ function setupWebGL() {
 
 } // end setupWebGL
 
-/**
-  Got a tip from a classmate that glMatrix provides a perspective function that
-  can create the perspective matrix for you.
- */
-function resetView() {
-  var tmp = mat4.create();
-  view = mat4.create();
-  mat4.perspective(tmp, Math.PI / 2, gl.canvas.clientWidth / gl.canvas.clientHeight, .01, 100);
-
-  var focus = vec3.fromValues(eye[0] + lookat[0], eye[1] + lookat[1], eye[2] + lookat[2]);
-  var target = mat4.create();
-  mat4.lookAt(target, eye, focus, up);
-  mat4.multiply(view, tmp, target);
-}
-
 // read triangles in, load them into webgl buffers
 function loadTriangles() {
     blinnphong = 1;
     eye = new vec3.fromValues(0.5,0.5,-0.5)
     up = new vec3.fromValues(0,1,0);
     lookat = new vec3.fromValues(0,0,1);
-    resetView();
 
     var inputTriangles = getJSONFile(INPUT_TRIANGLES_URL,"triangles");
     if (inputTriangles != String.null) {
@@ -183,9 +167,7 @@ function loadTriangles() {
             numTriangleSets += 1
             numVerts += inputTriangles[whichSet].vertices.length
 
-        } // end for each triangle set
-        // console.log(coordArray.length);
-        // send the vertex coords to webGL
+        }
         vertexBuffer = gl.createBuffer(); // init empty vertex coord buffer
         gl.bindBuffer(gl.ARRAY_BUFFER,vertexBuffer); // activate that buffer
         gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(coordArray),gl.STATIC_DRAW); // coords to that buffer
@@ -239,6 +221,25 @@ function loadTriangles() {
 // setup the webGL shaders
 function setupShaders() {
 
+    gl.viewport(0, 0, gl.canvas.clientWidth, gl.canvas.clientHeight);
+
+    /**
+      Project description said to use the glMatrix to create my perspective and viewing transforms
+      In this block I create the view and perspective matrix then multiply them together in the
+      correct order.
+
+      Using this method I can just keep global variables for the eye, lookat, and up vectors and recreate
+      the perspective and viewing transforms each time.
+     */
+    var tmp = mat4.create();
+    view = mat4.create();
+    mat4.perspective(tmp, Math.PI/2, gl.canvas.clientWidth / gl.canvas.clientHeight, .1, 100);
+
+    var focus = vec3.fromValues(eye[0] + lookat[0], eye[1] + lookat[1], eye[2] + lookat[2]);
+    var target = mat4.create();
+    mat4.lookAt(target, eye, focus, up);
+    mat4.multiply(view, tmp, mat4.lookAt(target, eye, focus, up));
+
     var fShaderCode = `
         precision mediump float;
         varying lowp vec3 ambColor;
@@ -252,20 +253,30 @@ function setupShaders() {
         varying lowp vec3 normal;
         varying lowp vec3 fragPos;
 
-        vec3 lightpos = vec3(-3.0, -1.0, -0.5);
-
         void main(void) {
+            // All ambient, diffuse, and specular are 1.
+            // So these are all multiplied by 1, so I left
+            // them out.
+            vec3 lightpos = vec3(-3.0, -1.0, -0.5);
             vec3 lVect = normalize(lightpos - fragPos);
             vec3 vVect = normalize(eyePos - fragPos);
 
             if (blinnphong == 1) {
+                // L <- (N*H)^n
+                // H = (L+V)/(||L||+||V||)
                 vec3 hVect = (lVect + vVect)/(length(lVect) + length(vVect));
-                float specCoef = pow(dot(hVect, normal), n);
-                gl_FragColor = vec4(ambColor + difColor * dot(normal, lVect) + specCoef*speColor, 1);
+                // (Normal * HVect) ^ (n)
+                float specCoef = pow(abs(dot(hVect, normal)), n);
+
+                gl_FragColor = vec4(ambColor + difColor * abs(dot(normal, lVect)) + specCoef*speColor, 1);
             } else {
-                vec3 rVect = 2.0 * normal * ( dot(normal, lVect) ) - lVect;
+                // L <- (R*V)^n
+                // R = 2N(N*L) – L
+                vec3 rVect = 2.0 * normal * ( abs(dot(normal, lVect)) ) - lVect;
+                // (R * V) ^ (n)
                 float specCoef = pow(dot(rVect, vVect), n);
-                gl_FragColor = vec4(ambColor + difColor * dot(normal, lVect) + specCoef*speColor, 1);
+
+                gl_FragColor = vec4(ambColor + difColor * abs(dot(normal, lVect)) + specCoef*speColor, 1);
             }
         }
     `;
@@ -284,7 +295,7 @@ function setupShaders() {
         attribute vec3 vertexNormal;
         attribute lowp float vertexN;
 
-        uniform mat4 perspective;
+        uniform mat4 view;
         uniform vec3 eye;
 
         varying lowp vec3 ambColor;
@@ -303,7 +314,7 @@ function setupShaders() {
                                           vertexZTransformVectAttrib,
                                           vertexFTransformVectAttrib);
 
-            gl_Position = perspective * transMat * vec4(vertexPosition, 1.0);
+            gl_Position = view * transMat * vec4(vertexPosition, 1.0);
 
 
             ambColor = vertexAmbient;
@@ -312,9 +323,12 @@ function setupShaders() {
             eyePos = eye;
             n = vertexN;
 
-            normal = vertexNormal;
 
-            fragPos = vec3(gl_Position) / gl_Position.w; // divide to get homogenous coordinates
+            normal = normalize(vec3(transMat * vec4(vertexNormal, 0)));
+
+
+            // divide to get homogenous coordinates
+            fragPos = vec3(gl_Position) / gl_Position.w;
         }
     `;
 
@@ -376,8 +390,8 @@ function setupShaders() {
                 vertexFTransformVectAttrib = gl.getAttribLocation(shaderProgram, "vertexFTransformVectAttrib");
                 gl.enableVertexAttribArray(vertexFTransformVectAttrib);
 
-                var perploc = gl.getUniformLocation(shaderProgram, "perspective");
-		            gl.uniformMatrix4fv(perploc, false, view);
+                var viewLoc = gl.getUniformLocation(shaderProgram, "view");
+		            gl.uniformMatrix4fv(viewLoc, false, view);
 
                 var eyeLoc = gl.getUniformLocation(shaderProgram, "eye");
                 gl.uniform3fv(eyeLoc, eye);
@@ -733,7 +747,6 @@ document.addEventListener('keydown', function(keypress) {
       rotateZ(-.1);
     }
 
-    resetView();
     setupShaders();
 
 });

@@ -10,5 +10,20 @@
 
   <body onload="main();">
     <canvas id="myWebGLCanvas" width="512" height="512"></canvas>
+    <hr />
+    Width: <input type="text" id="width" value="512">
+    &nbsp &nbsp
+    Height: <input type="text" id="height" value="512">
+    <hr />
+    <input type="button" value="Submit" onclick="submit()">
   </body>
+
+  <script>
+    function submit() {
+      document.getElementById("myWebGLCanvas").width = document.getElementById("width").value;
+      document.getElementById("myWebGLCanvas").height = document.getElementById("height").value;
+      setupShaders();
+    }
+
+  </script>
 </html>
